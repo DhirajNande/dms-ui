@@ -16,7 +16,7 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
 
-    - name: Log in to Docker Hub
+    - name: Login to Docker Hub
       uses: docker/login-action@v2
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -27,25 +27,25 @@ jobs:
       with:
         context: .
         push: true
-        tags: your-dockerhub-username/angular-app:latest
+        tags: dhirajnande/angular-app:latest
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: your-aws-region
+        aws-region: ap-south-1
 
-    - name: Setup kubectl
+    - name: Install kubectl
       uses: azure/setup-kubectl@v3
       with:
         version: 'latest'
 
-    - name: Update kubeconfig
+    - name: Update kubeconfig for EKS
       run: |
-        aws eks update-kubeconfig --name your-eks-cluster-name --region your-aws-region
+        aws eks update-kubeconfig --name test-cluster --region ap-south-1
 
-    - name: Deploy to EKS
+    - name: Deploy to EKS using manifest
       run: |
-        kubectl set image deployment/angular-deployment angular-container=your-dockerhub-username/angular-app:latest
-        kubectl rollout status deployment/angular-deployment
+        kubectl apply -f k8s/deployment.yaml
+        kubectl rollout status deployment angular-deployment
