@@ -1,4 +1,4 @@
-name: Build and Deploy Angular to EKS
+name: Build and Deploy Angular to EKS via ECR
 
 on:
   push:
@@ -11,6 +11,8 @@ jobs:
 
     env:
       IMAGE_TAG: ${{ github.run_number }}
+      AWS_REGION: ap-south-1
+      ECR_REPO_NAME: angular-app
 
     steps:
     - name: Checkout code
@@ -19,25 +21,29 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
 
-    - name: Login to Docker Hub
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v4
-      with:
-        context: .
-        push: true
-        tags: dhirajnande/angular-app:${{ env.IMAGE_TAG }}
-
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ap-south-1
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Get AWS Account ID and Set ECR Image URI
+      id: ecr
+      run: |
+        ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+        echo "ECR_REGISTRY=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com" >> $GITHUB_ENV
+        echo "ECR_IMAGE=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_NAME }}:${{ env.IMAGE_TAG }}" >> $GITHUB_ENV
+
+    - name: Build and Push Docker image to ECR
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{ env.ECR_IMAGE }}
 
     - name: Install kubectl
       uses: azure/setup-kubectl@v3
@@ -46,12 +52,10 @@ jobs:
 
     - name: Update kubeconfig for EKS
       run: |
-        aws eks update-kubeconfig --name test-cluster --region ap-south-1
+        aws eks update-kubeconfig --name test-cluster --region ${{ env.AWS_REGION }}
 
     - name: Deploy to EKS using manifest
       run: |
-        # Update the image tag in the deployment manifest dynamically
-        sed -i "s|image: dhirajnande/angular-app:.*|image: dhirajnande/angular-app:${{ env.IMAGE_TAG }}|" k8s/deployment.yaml
-
+        sed -i "s|image: .*|image: ${{ env.ECR_IMAGE }}|" k8s/deployment.yaml
         kubectl apply -f k8s/deployment.yaml
         kubectl rollout status deployment angular-deployment
